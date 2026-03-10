@@ -1,3 +1,6 @@
+#ifndef ZSTD_STATIC_LINKING_ONLY
+#define ZSTD_STATIC_LINKING_ONLY
+#endif
 #include <jni.h>
 #include <zstd.h>
 #include <zstd_errors.h>
@@ -59,6 +62,12 @@ JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_ini
     // Initialize the fields ids only once - they can't change
     src_pos_id = (*env)->GetFieldID(env, clazz, "srcPos", "J");
     dst_pos_id = (*env)->GetFieldID(env, clazz, "dstPos", "J");
+    // Enable stable output buffer mode: ZSTD writes directly to the output
+    // buffer instead of going through an internal buffer, avoiding a memcpy
+    // of all decompressed data. This is safe when the output buffer pointer
+    // and size remain consistent across calls within a single frame.
+    ZSTD_DCtx_setParameter((ZSTD_DCtx *)(intptr_t) stream,
+        ZSTD_d_stableOutBuffer, 1);
     return 0;
 }
 
@@ -81,6 +90,7 @@ JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_dec
   (JNIEnv *env, jclass obj, jlong stream, jbyteArray dst, jint dst_size, jbyteArray src, jint src_size) {
 
     size_t size = -ZSTD_error_memory_allocation;
+    ZSTD_DCtx *dctx = (ZSTD_DCtx *)(intptr_t) stream;
 
     size_t src_pos = (size_t) (*env)->GetLongField(env, obj, src_pos_id);
     size_t dst_pos = (size_t) (*env)->GetLongField(env, obj, dst_pos_id);
@@ -93,7 +103,21 @@ JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_dec
     ZSTD_outBuffer output = { dst_buff, dst_size, dst_pos };
     ZSTD_inBuffer input = { src_buff, src_size, src_pos };
 
-    size = ZSTD_decompressStream((ZSTD_DCtx *)(intptr_t) stream, &output, &input);
+    size = ZSTD_decompressStream(dctx, &output, &input);
+
+    /* If stable output buffer is too small for the frame content size,
+     * fall back to buffered mode and retry. This error occurs during frame
+     * header parsing before any decompression, so retrying is safe. */
+    if (ZSTD_isError(size)
+            && ZSTD_getErrorCode(size) == ZSTD_error_dstSize_tooSmall) {
+        /* Reset session (preserves user parameters like dict, windowLogMax)
+         * and disable stable output buffer, then retry */
+        ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+        ZSTD_DCtx_setParameter(dctx, ZSTD_d_stableOutBuffer, 0);
+        output.pos = dst_pos;
+        input.pos = src_pos;
+        size = ZSTD_decompressStream(dctx, &output, &input);
+    }
 
     (*env)->ReleasePrimitiveArrayCritical(env, src, src_buff, JNI_ABORT);
 E2: (*env)->ReleasePrimitiveArrayCritical(env, dst, dst_buff, 0);
