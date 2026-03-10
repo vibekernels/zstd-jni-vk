@@ -27,7 +27,10 @@ public class ZstdOutputStreamNoFinalizer extends FilterOutputStream {
     private final ByteBuffer dstByteBuffer;
     private final byte[] dst;
     private boolean isClosed = false;
-    private static final int dstSize = (int) recommendedCOutSize();
+    // Use a larger output buffer (1MB) to reduce the number of JNI/native calls.
+    // A larger buffer allows ZSTD to write compressed blocks directly to the output
+    // instead of going through an internal buffer, avoiding a memcpy per block.
+    private static final int dstSize = Math.max((int) recommendedCOutSize(), 1024 * 1024);
     private boolean closeFrameOnFlush = false;
     private boolean frameClosed = true;
     private boolean frameStarted = false;
