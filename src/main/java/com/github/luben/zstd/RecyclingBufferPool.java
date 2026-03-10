@@ -19,30 +19,35 @@ public class RecyclingBufferPool implements BufferPool {
             (int) ZstdInputStreamNoFinalizer.recommendedDOutSize());
 
     private final ConcurrentLinkedQueue<SoftReference<ByteBuffer>> pool;
+    private final ConcurrentLinkedQueue<SoftReference<ByteBuffer>> largePool;
 
     private RecyclingBufferPool() {
         this.pool = new ConcurrentLinkedQueue<>();
+        this.largePool = new ConcurrentLinkedQueue<>();
     }
 
     @Override
     public ByteBuffer get(int capacity) {
+        ConcurrentLinkedQueue<SoftReference<ByteBuffer>> targetPool;
+        int allocSize;
         if (capacity > buffSize) {
-            throw new RuntimeException(
-                    "Unsupported buffer size: " + capacity +
-                            ". Supported buffer sizes: " + buffSize + " or smaller."
-            );
+            targetPool = largePool;
+            allocSize = capacity;
+        } else {
+            targetPool = pool;
+            allocSize = buffSize;
         }
         while(true) {
             // This if statement introduces a possible race condition of allocating a buffer while we're trying to
             // release one. However, the extra allocation should be considered insignificant in terms of cost.
             // Particularly with respect to throughput.
-            SoftReference<ByteBuffer> sbuf = pool.poll();
+            SoftReference<ByteBuffer> sbuf = targetPool.poll();
 
             if (sbuf == null) {
-                return ByteBuffer.allocate(buffSize);
+                return ByteBuffer.allocate(allocSize);
             }
             ByteBuffer buf = sbuf.get();
-            if (buf != null) {
+            if (buf != null && buf.capacity() >= capacity) {
                 return buf;
             }
         }
@@ -50,8 +55,11 @@ public class RecyclingBufferPool implements BufferPool {
 
     @Override
     public void release(ByteBuffer buffer) {
-        if (buffer.capacity() >= buffSize) {
-            buffer.clear();
+        int capacity = buffer.capacity();
+        buffer.clear();
+        if (capacity > buffSize) {
+            largePool.add(new SoftReference<>(buffer));
+        } else if (capacity == buffSize) {
             pool.add(new SoftReference<>(buffer));
         }
     }

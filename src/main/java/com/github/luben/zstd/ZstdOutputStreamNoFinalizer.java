@@ -401,6 +401,42 @@ public class ZstdOutputStreamNoFinalizer extends FilterOutputStream {
     }
 
 
+    /**
+     * Finalize the current zstd frame without closing the stream.
+     * After calling this, write() can be called again to start a new frame.
+     * The native compression context is reused, avoiding reallocation.
+     */
+    public synchronized void endFrame() throws IOException {
+        if (isClosed) {
+            throw new IOException("Stream closed");
+        }
+        if (!frameClosed) {
+            int size;
+            do {
+                size = endStream(stream, dst, dstSize);
+                if (Zstd.isError(size)) {
+                    throw new ZstdIOException(size);
+                }
+                out.write(dst, 0, (int) dstPos);
+            } while (size > 0);
+            frameClosed = true;
+        }
+    }
+
+    /**
+     * Set the underlying output stream. This allows reusing the compressor
+     * with a different output target without reallocating the native context.
+     * Must be called when no frame is in progress (after endFrame() or before write()).
+     */
+    public synchronized void setOutputStream(OutputStream newOut) {
+        if (!frameClosed && !isClosed) {
+            throw new IllegalStateException("Cannot change output stream while a frame is in progress");
+        }
+        this.out = newOut;
+        this.isClosed = false;
+        this.frameStarted = false;
+    }
+
     public synchronized void close() throws IOException {
         close(true);
     }

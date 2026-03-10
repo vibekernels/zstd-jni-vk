@@ -32,7 +32,12 @@ public class ZstdInputStreamNoFinalizer extends FilterInputStream {
     private final BufferPool bufferPool;
     private final ByteBuffer srcByteBuffer;
     private final byte[] src;
-    private static final int srcBuffSize = (int) recommendedDInSize();
+    // Use a larger input buffer (1MB) to reduce the number of JNI/native calls.
+    // ZSTD_decompressStream is significantly faster when given more input per call,
+    // as it avoids state save/restore overhead between calls. The ZSTD recommended
+    // size (128KB) guarantees one complete block per call, but using a larger buffer
+    // allows processing multiple blocks per call for much higher throughput.
+    private static final int srcBuffSize = Math.max((int) recommendedDInSize(), 1024 * 1024);
 
     private boolean isContinuous = false;
     private boolean frameFinished = true;
@@ -44,6 +49,7 @@ public class ZstdInputStreamNoFinalizer extends FilterInputStream {
     private static native long createDStream();
     private static native int  freeDStream(long stream);
     private native int  initDStream(long stream);
+    private native int  resetDStream(long stream);
     private native int  decompressStream(long stream, byte[] dst, int dst_size, byte[] src, int src_size);
 
     /**
@@ -68,6 +74,26 @@ public class ZstdInputStreamNoFinalizer extends FilterInputStream {
         synchronized(this) {
             this.stream = createDStream();
             initDStream(stream);
+        }
+    }
+
+    /**
+     * Reset the decompression stream for reuse with a new input source.
+     * This reuses the native decompression context, avoiding reallocation.
+     *
+     * @param newIn the new input stream to decompress from
+     */
+    public synchronized void setInputStream(InputStream newIn) throws IOException {
+        this.in = newIn;
+        this.dstPos = 0;
+        this.srcPos = 0;
+        this.srcSize = 0;
+        this.needRead = true;
+        this.frameFinished = true;
+        this.isClosed = false;
+        int size = resetDStream(stream);
+        if (Zstd.isError(size)) {
+            throw new ZstdIOException(size);
         }
     }
 

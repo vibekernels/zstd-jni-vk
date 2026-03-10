@@ -257,6 +257,25 @@ public class ZstdOutputStream extends FilterOutputStream{
         return this;
     }
 
+    /**
+     * Finalize the current zstd frame without closing the stream.
+     * After calling this, write() can be called again to start a new frame.
+     * The native compression context is reused, avoiding reallocation.
+     */
+    public void endFrame() throws IOException {
+        inner.endFrame();
+    }
+
+    /**
+     * Set the underlying output stream. This allows reusing the compressor
+     * with a different output target without reallocating the native context.
+     * Must be called when no frame is in progress (after endFrame() or before write()).
+     */
+    public void setOutputStream(OutputStream newOut) {
+        inner.setOutputStream(newOut);
+        this.out = newOut;
+    }
+
     public void write(byte[] src, int offset, int len) throws IOException {
         inner.write(src, offset, len);
     }

@@ -99,6 +99,17 @@ public class ZstdInputStream extends FilterInputStream {
         return this;
     }
 
+    /**
+     * Reset the decompression stream for reuse with a new input source.
+     * This reuses the native decompression context, avoiding reallocation.
+     *
+     * @param newIn the new input stream to decompress from
+     */
+    public void setInputStream(InputStream newIn) throws IOException {
+        inner.setInputStream(newIn);
+        this.in = newIn;
+    }
+
     public int read(byte[] dst, int offset, int len) throws IOException {
         return inner.read(dst, offset, len);
     }

@@ -64,6 +64,16 @@ JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_ini
 
 /*
  * Class:     com_github_luben_zstd_ZstdInputStreamNoFinalizer
+ * Method:    resetDStream
+ * Signature: (J)I
+ */
+JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_resetDStream
+  (JNIEnv *env, jclass obj, jlong stream) {
+    return (jint) ZSTD_DCtx_reset((ZSTD_DCtx *)(intptr_t) stream, ZSTD_reset_session_only);
+}
+
+/*
+ * Class:     com_github_luben_zstd_ZstdInputStreamNoFinalizer
  * Method:    decompressStream
  * Signature: (J[BI[BI)I
  */
