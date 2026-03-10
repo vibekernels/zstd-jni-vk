@@ -74,6 +74,17 @@ jniGccFlags ++= Seq(
   "-Wpointer-arith", "-DZSTD_LEGACY_SUPPORT=4", "-DZSTD_MULTITHREAD=1", "-lpthread", "-flto"
 )
 
+// Enable BMI2 instructions on x86_64 for faster Huffman decoding.
+// All x86_64 CPUs since Haswell (2013) support BMI2.
+// This replaces DYNAMIC_BMI2 runtime dispatch with static inlining,
+// which significantly improves decompression throughput.
+jniGccFlags ++= (
+  if (System.getProperty("os.arch") == "amd64" || System.getProperty("os.arch") == "x86_64")
+    Seq("-mbmi", "-mbmi2")
+  else
+    Seq.empty
+)
+
 // compilation on Windows with MSYS/gcc needs extra flags in order
 // to produce correct DLLs, also it alway produces position independent
 // code so let's remove the flag and silence a warning
