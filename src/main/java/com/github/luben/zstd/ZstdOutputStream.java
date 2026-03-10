@@ -276,6 +276,15 @@ public class ZstdOutputStream extends FilterOutputStream{
         this.out = newOut;
     }
 
+    /**
+     * Compress an entire frame in a single operation using zero-copy input.
+     * This is faster than write() + close() because it avoids copying the input
+     * to ZSTD's internal buffer and reduces JNI overhead.
+     */
+    public void writeFrame(byte[] src, int offset, int len) throws IOException {
+        inner.writeFrame(src, offset, len);
+    }
+
     public void write(byte[] src, int offset, int len) throws IOException {
         inner.write(src, offset, len);
     }

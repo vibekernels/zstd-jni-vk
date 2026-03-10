@@ -43,6 +43,7 @@ public class ZstdOutputStreamNoFinalizer extends FilterOutputStream {
     private native int compressStream(long ctx, byte[] dst, int dst_size, byte[] src, int src_size);
     private native int flushStream(long ctx, byte[] dst, int dst_size);
     private native int endStream(long ctx, byte[] dst, int dst_size);
+    private native int compressFrameEnd(long ctx, byte[] dst, int dst_size, byte[] src, int src_offset, int src_size);
 
 
     /**
@@ -403,6 +404,46 @@ public class ZstdOutputStreamNoFinalizer extends FilterOutputStream {
         }
     }
 
+
+    /**
+     * Compress an entire frame in a single operation using zero-copy input.
+     * This is faster than write() + close() because it avoids copying the input
+     * to ZSTD's internal buffer and reduces JNI overhead.
+     *
+     * Must be called when no frame is in progress (frameClosed == true).
+     * After this call, the frame is complete. Call write() or writeFrame()
+     * again to start a new frame, or close() to finish.
+     *
+     * @param src the input data
+     * @param offset start offset in src
+     * @param len number of bytes to compress
+     */
+    public synchronized void writeFrame(byte[] src, int offset, int len) throws IOException {
+        if (isClosed) {
+            throw new IOException("StreamClosed");
+        }
+        if (!frameClosed) {
+            throw new IllegalStateException("Frame already in progress, call endFrame() first");
+        }
+        int outCapacity = (int) Math.min(Zstd.compressBound(len), Integer.MAX_VALUE);
+        ByteBuffer outBuf = Zstd.getArrayBackedBuffer(bufferPool, outCapacity);
+        byte[] outArr = outBuf.array();
+        try {
+            int size = compressFrameEnd(stream, outArr, outCapacity, src, offset, offset + len);
+            if (Zstd.isError(size)) {
+                throw new ZstdIOException(size);
+            }
+            if (size > 0) {
+                // Output buffer too small (shouldn't happen with compressBound-sized buffer)
+                throw new ZstdIOException(Zstd.errGeneric(), "Output buffer too small for single-shot compression");
+            }
+            out.write(outArr, 0, (int) dstPos);
+            frameClosed = true;
+            frameStarted = true;
+        } finally {
+            bufferPool.release(outBuf);
+        }
+    }
 
     /**
      * Finalize the current zstd frame without closing the stream.
