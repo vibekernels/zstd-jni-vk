@@ -110,6 +110,15 @@ public class ZstdInputStream extends FilterInputStream {
         this.in = newIn;
     }
 
+    /**
+     * Decompress an entire frame in a single operation.
+     * This is faster than the streaming read() loop because it avoids copying
+     * the compressed input to an internal buffer and reduces JNI overhead.
+     */
+    public int readFrame(byte[] src, int srcOffset, int srcLen, byte[] dst, int dstOffset, int dstLen) throws IOException {
+        return inner.readFrame(src, srcOffset, srcLen, dst, dstOffset, dstLen);
+    }
+
     public int read(byte[] dst, int offset, int len) throws IOException {
         return inner.read(dst, offset, len);
     }

@@ -51,6 +51,7 @@ public class ZstdInputStreamNoFinalizer extends FilterInputStream {
     private native int  initDStream(long stream);
     private native int  resetDStream(long stream);
     private native int  decompressStream(long stream, byte[] dst, int dst_size, byte[] src, int src_size);
+    private native int  decompressFrame(long stream, byte[] dst, int dst_offset, int dst_len, byte[] src, int src_offset, int src_len);
 
     /**
      * create a new decompressing InputStream
@@ -285,6 +286,34 @@ public class ZstdInputStreamNoFinalizer extends FilterInputStream {
             bufferPool.release(buf);
         }
         return numBytes - toSkip;
+    }
+
+    /**
+     * Decompress an entire frame in a single operation.
+     * This is faster than the streaming read() loop because it avoids copying
+     * the compressed input to an internal buffer and reduces JNI overhead.
+     *
+     * Must not be mixed with streaming read() calls on the same instance.
+     * The native decompression context is reused across calls, so this method
+     * can be called repeatedly to decompress multiple frames.
+     *
+     * @param src the compressed data
+     * @param srcOffset start offset in src
+     * @param srcLen number of compressed bytes
+     * @param dst the output buffer
+     * @param dstOffset start offset in dst
+     * @param dstLen capacity available in dst
+     * @return number of bytes decompressed
+     */
+    public synchronized int readFrame(byte[] src, int srcOffset, int srcLen, byte[] dst, int dstOffset, int dstLen) throws IOException {
+        if (isClosed) {
+            throw new IOException("Stream closed");
+        }
+        int size = decompressFrame(stream, dst, dstOffset, dstLen, src, srcOffset, srcLen);
+        if (Zstd.isError(size)) {
+            throw new ZstdIOException(size);
+        }
+        return size;
     }
 
     public synchronized void close() throws IOException {

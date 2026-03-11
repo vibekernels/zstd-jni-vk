@@ -125,3 +125,33 @@ E2: (*env)->ReleasePrimitiveArrayCritical(env, dst, dst_buff, 0);
     (*env)->SetLongField(env, obj, src_pos_id, input.pos);
 E1: return (jint) size;
 }
+
+/*
+ * Class:     com_github_luben_zstd_ZstdInputStreamNoFinalizer
+ * Method:    decompressFrame
+ * Signature: (J[BII[BII)I
+ *
+ * Single-shot decompression using the simple ZSTD API. Decompresses an entire
+ * frame in a single JNI call with no streaming overhead. Returns the
+ * decompressed size directly (or a negative error code).
+ */
+JNIEXPORT jint JNICALL Java_com_github_luben_zstd_ZstdInputStreamNoFinalizer_decompressFrame
+  (JNIEnv *env, jclass obj, jlong stream, jbyteArray dst, jint dst_offset, jint dst_len, jbyteArray src, jint src_offset, jint src_len) {
+
+    ZSTD_DCtx *dctx = (ZSTD_DCtx *)(intptr_t) stream;
+    size_t size = -ZSTD_error_memory_allocation;
+
+    void *dst_buff = (*env)->GetPrimitiveArrayCritical(env, dst, NULL);
+    if (dst_buff == NULL) goto E1;
+    void *src_buff = (*env)->GetPrimitiveArrayCritical(env, src, NULL);
+    if (src_buff == NULL) goto E2;
+
+    size = ZSTD_decompressDCtx(dctx,
+        (char*)dst_buff + dst_offset, (size_t)dst_len,
+        (char*)src_buff + src_offset, (size_t)src_len);
+
+    (*env)->ReleasePrimitiveArrayCritical(env, src, src_buff, JNI_ABORT);
+E2: (*env)->ReleasePrimitiveArrayCritical(env, dst, dst_buff, 0);
+
+E1: return (jint) size;
+}
