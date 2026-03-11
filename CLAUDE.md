@@ -39,3 +39,12 @@ Runs `ZstdPerfStreamingBufferPoolSpec` — 200 cycles over ~5MB XML data at comp
 - **Context reuse alone (without API changes)**: Eliminating ZSTD_createDCtx/freeDCtx per cycle saves only ~0.1% — malloc/free overhead is negligible vs actual compression/decompression time
 - **`ZSTD_decompressStream` for single-shot decompression**: Streaming API has per-block state machine overhead; `ZSTD_decompressDCtx` (simple API) is measurably faster for single-frame decompression
 - **Standalone benchmark without JIT warmup**: Run-to-run variance exceeds 5%; always use A/B comparison within the same JVM run for reliable measurement
+- **`ZSTD_compress2` vs manual `ZSTD_compressStream2` + `ZSTD_e_end`**: When output buffer >= `ZSTD_compressBound(srcSize)`, the same shortcut code path is taken regardless of `stableOutBuffer` — no performance difference, only code cleanup
+- **`-fno-semantic-interposition`**: No improvement with LTO + `-Wl,-Bsymbolic` already in use
+- **`-flto-partition=one`**: Single LTO partition, no measurable improvement
+- **`-fvisibility=hidden`**: No improvement — version script already hides internal symbols
+- **`-march=x86-64-v2`**: SSE4.2/POPCNT, no measurable improvement for ZSTD workloads
+- **`-fipa-pta`** (interprocedural points-to analysis): No improvement despite being disabled at `-O3`
+- **`-fmodulo-sched -fmodulo-sched-allow-regmoves -fsched-pressure`**: Software pipelining and register-pressure scheduling — no measurable improvement
+- **`-mavx -mprefer-vector-width=128 -mtune=native`**: AVX VEX encoding + Cascade Lake tuning — no improvement; ZSTD's hot loops don't benefit from 3-operand VEX form
+- **Post-round-2 overhead budget**: After stableInBuffer (round 1) and ZSTD_decompressDCtx (round 2), JNI/Java overhead is <1% of total time. The ZSTD C algorithm itself dominates — further 5% gains require algorithmic changes, not overhead reduction
